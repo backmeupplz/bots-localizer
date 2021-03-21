@@ -1,47 +1,73 @@
 <template lang="pug">
-  nav
-    v-app-bar(flat app style='maxWidth: 1000px; margin: auto')
-      // Title
-      v-toolbar-title.text-uppercase.grey--text
-        a(@click='goHome') {{$t('title')}}
-      v-spacer
-      // Dark mode
-      v-btn(text icon color='grey' @click='toggleMode')
-        v-icon(small) brightness_2
-      // Admin
-      v-btn(text icon color='grey' @click='goToAdmin')
-        v-icon(small) vpn_key
-      // Admin
-      v-btn(text icon color='grey' @click='goToCode')
-        v-icon(small) code
-      // Language picker
-      v-menu(offset-y)
-        template(v-slot:activator='{ on }')
-          v-btn(text icon color='grey' v-on='on') {{currentLocale.icon}}
-        v-list
-          v-list-item(
-            v-for='locale in locales'
-            @click='changeLanguage(locale.code)'
-            :key="locale.code"
-          )
-            v-list-item-title {{locale.icon}}
+header.header(:class='scrolled ? "header--shadow" : ""')
+  .header__inner
+    .header__logo
+      img.logo(src='/img/logo.svg', alt='Localizer', @click='goHome')
+    .header__menu(:class='scrolled ? "header__menu--scroll" : ""')
+      Icon(@click='toggleDark')
+        img(v-if='dark', src='@/assets/icons/sun.svg')
+        img(v-else, src='@/assets/icons/moon.svg')
+      Icon(@click='toggleAdmin')
+        img(v-if='isAdmin', src='@/assets/icons/key-active.svg')
+        img(v-else, src='@/assets/icons/key.svg')
+      Icon(@click='goCode')
+        img(v-if='isCode', src='@/assets/icons/arrows-active.svg')
+        img(v-else, src='@/assets/icons/arrows.svg')
+      Icon(@click='refresh')
+        img(src='@/assets/icons/layers.svg')
+      Dropdown(
+        flat,
+        :items='locales.map((locale) => locale.code)',
+        @click='changeLanguage',
+        :label='currentLocale.code'
+      )
 </template>
 
 <script lang="ts">
 import Vue from 'vue'
 import Component from 'vue-class-component'
-import * as store from '../plugins/store'
-import { i18n } from '../plugins/i18n'
-import * as api from '../utils/api'
+import { i18n } from '@/plugins/i18n'
+import { namespace } from 'vuex-class'
+
+const AppStore = namespace('AppStore')
+const DataStore = namespace('DataStore')
 
 @Component
 export default class Navbar extends Vue {
+  @AppStore.State dark!: boolean
+  @AppStore.State isAdmin!: boolean
+
+  @AppStore.Mutation setLanguage!: (language: string) => void
+  @AppStore.Mutation setDark!: (dark: boolean) => void
+  @AppStore.Mutation toggleAdmin!: () => void
+  @DataStore.Mutation setLoading!: (loading: boolean) => void
+  @DataStore.Action loadData!: () => void
+
+  scrolled = false;
+  isCode = false;
+
+  created() {
+    window.addEventListener('scroll', this.handleScroll);
+    if (this.$router.currentRoute.path === '/code') {
+      this.isCode = true;
+    }
+  }
+
+  destroyed() {
+    window.removeEventListener('scroll', this.handleScroll);
+  }
+
+  handleScroll() {
+    this.scrolled = window.scrollY > 0;
+  }
+
   get locales() {
     return [
       { icon: '🇺🇸', code: 'en' },
       { icon: '🇷🇺', code: 'ru' },
     ]
   }
+
   get currentLocale() {
     for (const locale of this.locales) {
       if (locale.code === i18n.locale) {
@@ -50,41 +76,112 @@ export default class Navbar extends Vue {
     }
   }
 
-  toggleMode() {
-    store.setDark(!store.dark())
-    ;(this.$vuetify.theme as any).dark = store.dark()
-  }
   changeLanguage(locale: string) {
     i18n.locale = locale
-    store.setLanguage(locale)
+    this.setLanguage(locale)
     document.title = i18n.t('title') as string
   }
+
+  toggleDark() {
+    this.setDark(!this.dark)
+    if (this.dark) {
+      document.body.classList.add('dark')
+    } else {
+      document.body.classList.remove('dark')
+    }
+  }
+
   goHome() {
-    this.$router.replace('/')
+    if (this.$router.currentRoute.path !== '/') {
+      this.isCode = false;
+      this.$router.replace('/')
+    }
   }
-  goToAdmin() {
-    this.$router.replace('/admin')
+
+  goCode() {
+    if (this.$router.currentRoute.path === '/code') {
+      this.$router.replace('/')
+      this.isCode = false;
+    } else {
+      this.$router.replace('/code')
+      this.isCode = true;
+    }
   }
-  goToCode() {
-    this.$router.replace('/code')
+
+  async refresh() {
+    this.setLoading(true)
+    try {
+      await this.loadData()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      this.setLoading(false)
+    }
   }
 }
 </script>
 
-<style>
-nav a:link {
-  text-decoration: none;
+<style lang="scss">
+.logo {
+  @apply cursor-pointer;
 }
 
-nav a:visited {
-  text-decoration: none;
+.header {
+  @apply p-5;
+  @apply md_sticky;
+  @apply top-0;
+  @apply shadow-none;
+  @apply transition-shadow;
+  @apply z-30;
+  @apply bg-white;
+
+  &--shadow {
+    @apply shadow-none;
+    @apply md_shadow-sm;
+  }
+
+  &__inner {
+    @apply max-w-screen-xl;
+    @apply mx-auto;
+    @apply flex;
+    @apply flex-col;
+    @apply md_flex-row;
+    @apply items-center;
+    @apply justify-center;
+    @apply space-y-3;
+    @apply md_space-y-0;
+    @apply md_justify-between;
+  }
+
+  &__menu {
+    @apply bg-back-gray;
+    @apply rounded-lg;
+    @apply py-3;
+    @apply px-4;
+    @apply inline-flex;
+    @apply transition;
+    @apply space-x-5;
+  }
+
+  &__menu--scroll {
+    @apply bg-back-gray;
+    @apply bg-opacity-60;
+    @apply md_bg-transparent;
+  }
 }
 
-nav a:hover {
-  text-decoration: underline;
-}
+.dark {
+  & .header {
+    @apply bg-back-dark;
 
-nav a:active {
-  text-decoration: underline;
+    &__menu {
+      @apply bg-back-light-dark;
+      @apply bg-opacity-80;
+    }
+
+    &__menu--scroll {
+      @apply bg-transparent;
+    }
+  }
 }
 </style>

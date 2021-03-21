@@ -1,102 +1,93 @@
 <template lang="pug">
-  div(style='width: 100%;')
-    .my-1
-      .mr-2
-        v-chip.px-1(
-          dark
-          x-small
-          color='red'
-          v-if='admin && !select'
-          @click='deleteVariant(variant, localization.key)'
-          :loading='loading'
-        )
-          v-icon(x-small color='white') delete
-        v-chip.px-1(
-          dark
-          x-small
-          color='green'
-          v-if='admin && !select'
-          @click='selectVariant(variant, localization.key)'
-          :loading='loading'
-        )
-          v-icon(x-small color='white') done
-        v-chip.px-1.mr-2(
-          dark
-          x-small
-          v-if='admin'
-          @click='edit = !edit'
-          :class='edit ? "green darken-2" : ""'
-          :loading='loading'
-        )
-          v-icon(x-small color='white') edit
-        v-chip.px-1(
-          dark
-          x-small
-          :color='$store.state.colors[variant.language]'
-        ) {{variant.language}}
-        v-chip.px-1(dark x-small v-if='variant.username') {{variant.username.substr(0, 25)}}
-        v-chip.px-1(dark x-small v-if='variant.createdAt') {{dateDisplay(variant.createdAt)}}
-        v-chip.green.px-1(dark x-small v-if='variant.selected')
-          v-icon(small color='white') done
-        v-chip.px-2.ml-2(
-          x-small
-          :disabled='loading'
-          @click='downvoteVariant(variant, localization.key)'
-          :class='isDownvoted(variant._id) ? "red darken-2" : ""'
-        ) {{loading ? '🤔' : '👎'}}{{variant.downvotes ? ` ${variant.downvotes}` : ''}}
-        v-chip.px-2(
-          dark
-          x-small
-          :disabled='loading'
-          @click='upvoteVariant(variant, localization.key)'
-          :class='isUpvoted(variant._id) ? "green darken-2" : ""'
-        ) {{loading ? '🤔' : '👍'}}{{variant.upvotes ? ` ${variant.upvotes}` : ''}}
-        v-chip.mx-2(
-          dark
-          x-small
-          @click='commentsOpen = !commentsOpen'
-          :class='commentsOpen ? "green darken-2" : hasNewComments(variant) ? "primary" : ""'
-        ) {{$t('comment.comments')}}{{variant.comments.length ? ` ${variant.comments.length}` : ''}}{{hasNewComments(variant) ? `, ${$t("new")}` : ''}}
-        v-chip.px-1(
-          x-small
-          v-if='!$store.state.viewedItems[variant._id]'
-          dark
-          @mouseover='setViewedItem(variant._id)'
-          color='primary'
-        ) {{$t('new')}}
-      p.mb-0 {{variant.text.replace(/\n/gi, '\\n')}}
-      EditVariant(
-        v-if='edit'
-        :variant='variant'
-        :localizationKey='localization.key'
-        :closeEdit='closeEdit'
+.variant
+  .variant__actions
+    .variant__icons(v-if='isAdmin && !selectOrDeleteVariantsEnabled')
+      Icon(
+        v-if='isAdmin && !selectOrDeleteVariantsEnabled',
+        :loading='loading',
+        @click='deleteVariant'
       )
-      Comments(
-        v-if='commentsOpen'
-        :variant='variant'
-        :localizationKey='localization.key'
-        :admin='admin'
+        img(src='../assets/icons/close.svg') 
+      Icon(
+        v-if='isAdmin && !selectOrDeleteVariantsEnabled && !variant.selected',
+        :loading='loading',
+        @click='selectVariant'
       )
-    v-divider
+        img(src='../assets/icons/done.svg', width=26) 
+      Icon(
+        v-if='isAdmin && !selectOrDeleteVariantsEnabled',
+        @click='editTextEnabled = !editTextEnabled',
+        :loading='loading'
+      )
+        img(src='../assets/icons/edit.svg') 
+    .flex.items-center.space-x-2.flex-wrap
+      Chip(:color='colors[variant.language]', selected, small, inactive) {{ variant.language }}
+      Chip(v-if='variant.username', small, flat, inactive) {{ variant.username.substr(0, 25) }}
+      Chip(v-if='variant.createdAt', small, flat, inactive) {{ dateDisplay(variant.createdAt) }}
+      Chip(
+        isNew,
+        small,
+        v-if='!viewedItems[variant._id]',
+        @click='setViewedProxy'
+      ) {{ $t("new") }}
+      Icon(inactive, v-if='variant.selected')
+        img(src='../assets/icons/done.svg', width=26)
+    .variant__ratings
+      Icon(@click='downvote', :loading='loading') 
+        img(
+          v-if='this.downvoted[variant._id]',
+          src='../assets/icons/down-active.svg',
+          width=26
+        ) 
+        img(v-else, src='../assets/icons/down.svg', width=26) 
+        span.card__icon-text(v-if='!!variant.downvotes') {{ variant.downvotes ? ` ${variant.downvotes}` : "" }}
+      Icon(@click='upvote', :loading='loading') 
+        img(
+          v-if='this.upvoted[variant._id]',
+          src='../assets/icons/up-active.svg',
+          width=26
+        ) 
+        img(v-else, src='../assets/icons/up.svg', width=26) 
+        span(v-if='!!variant.upvotes') {{ variant.upvotes ? ` ${variant.upvotes}` : "" }}
+    .variant__link(
+      @click='commentsOpen = !commentsOpen',
+      :class='commentsOpen ? "variant__link--active" : ""'
+    ) {{ $t("comment.comments") }}{{ variant.comments.length ? ` ${variant.comments.length}` : "" }}{{ hasNewComments(variant) ? `, ${$t("new")}` : "" }}
+  .variant__content {{ variant.text.replace(/\n/gi, "\\n") }}
+  EditVariant(
+    v-if='editTextEnabled',
+    :variant='variant',
+    :localizationKey='localization.key',
+    :closeEditText='() => { editTextEnabled = false; }'
+  )
+  Comments(
+    v-if='commentsOpen',
+    :variant='variant',
+    :localizationKey='localization.key'
+  )
 </template>
 
 <script lang="ts">
 import Vue from 'vue'
 import Component from 'vue-class-component'
-import { i18n } from '../plugins/i18n'
-import * as store from '../plugins/store'
-import * as api from '../utils/api'
+import * as api from '@/utils/api'
 import moment from 'moment'
-import Comments from './Comments.vue'
-import EditVariant from './EditVariant.vue'
+import Comments from '@/components/Comments.vue'
+import EditVariant from '@/components/EditVariant.vue'
+import { namespace } from 'vuex-class'
+import { ColorsMap } from '@/models/ColorsMap'
+import { ViewedItems } from '@/models/ViewedItems'
+
+const SnackbarStore = namespace('SnackbarStore')
+const DataStore = namespace('DataStore')
+const AppStore = namespace('AppStore')
 
 @Component({
   props: {
     variant: Object,
-    loadData: Function,
-    admin: Boolean,
-    select: Boolean,
     localization: Object,
+    selectOrDeleteVariantsEnabled: Boolean,
+    selected: Boolean,
   },
   components: {
     Comments,
@@ -104,112 +95,167 @@ import EditVariant from './EditVariant.vue'
   },
 })
 export default class Variant extends Vue {
+  @DataStore.State upvoted!: { [index: string]: boolean }
+  @DataStore.State downvoted!: { [index: string]: boolean }
+  @DataStore.State viewedItems!: ViewedItems
+
+  @DataStore.Mutation setViewedItem!: (id: string) => void
+  @SnackbarStore.Mutation setSnackbarError!: (error: string) => void
+  @DataStore.Mutation deleteLocalizationVariant!: (options: {
+    key: string
+    variant: Variant
+  }) => void
+  @DataStore.Mutation toggleUpvote!: (options: {
+    key: string
+    variant: Variant
+  }) => void
+  @DataStore.Mutation toggleDownvote!: (options: {
+    key: string
+    variant: Variant
+  }) => void
+  @DataStore.Mutation selectLocalizationVariant!: (options: {
+    key: string
+    variant: Variant
+  }) => void
+  @DataStore.Mutation refreshLocalizations!: () => void
+
+  @DataStore.State colors!: ColorsMap
+  @AppStore.State isAdmin!: boolean
+
   loading = false
   commentsOpen = false
-  edit = false
+  editTextEnabled = false
 
-  async selectVariant(variant: any, key: string) {
-    this.loading = true
-    try {
+  async selectVariant() {
+    const key = this.$props.localization.key
+    const variant = this.$props.variant
+    this.performRequest(async () => {
       await api.selectVariant(key, variant._id)
-      this.$props.loadData()
-    } catch (err) {
-      store.setSnackbarError(err.response.data)
-    } finally {
-      this.loading = false
-    }
+      this.selectLocalizationVariant({ key, variant })
+      this.refreshLocalizations()
+    })
   }
 
-  async deleteVariant(variant: any, key: string) {
-    this.loading = true
-    try {
+  async deleteVariant() {
+    const key = this.$props.localization.key
+    const variant = this.$props.variant
+    this.performRequest(async () => {
       await api.deleteVariant(key, variant._id)
-      this.$props.loadData()
-    } catch (err) {
-      store.setSnackbarError(err.response.data)
-    } finally {
-      this.loading = false
-    }
+      this.deleteLocalizationVariant({ key, variant })
+      this.refreshLocalizations()
+    })
   }
 
   dateDisplay(date: string) {
     return moment(date).format('L')
   }
 
-  isUpvoted(id: string) {
-    return store.upvoted()[id]
-  }
+  async upvote() {
+    const key = this.$props.localization.key
+    const variant = this.$props.variant
+    const upvoted = this.upvoted[variant._id]
 
-  isDownvoted(id: string) {
-    return store.downvoted()[id]
-  }
-
-  async upvoteVariant(variant: any, key: string) {
-    this.loading = true
-    try {
-      if (this.isDownvoted(variant._id)) {
-        await api.removeDownvoteVariant(key, variant._id)
-        variant.downvotes--
-        const downvoted = store.downvoted()
-        delete downvoted[variant._id]
-        store.setDownvoted(downvoted)
-      }
-      if (this.isUpvoted(variant._id)) {
-        return
-      }
-      await api.upvoteVariant(key, variant._id)
-      variant.upvotes++
-      const upvoted = store.upvoted()
-      upvoted[variant._id] = true
-      store.setUpvoted(upvoted)
-    } catch (err) {
-      store.setSnackbarError(err.response.data)
-    } finally {
-      this.loading = false
-    }
-  }
-
-  async downvoteVariant(variant: any, key: string) {
-    this.loading = true
-    try {
-      if (this.isUpvoted(variant._id)) {
+    this.performRequest(async () => {
+      if (upvoted) {
         await api.removeUpvoteVariant(key, variant._id)
-        variant.upvotes--
-        const upvoted = store.upvoted()
-        delete upvoted[variant._id]
-        store.setUpvoted(upvoted)
+      } else {
+        await api.upvoteVariant(key, variant._id)
       }
-      if (this.isDownvoted(variant._id)) {
-        return
-      }
-      await api.downvoteVariant(key, variant._id)
-      variant.downvotes++
-      const downvoted = store.downvoted()
-      downvoted[variant._id] = true
-      store.setDownvoted(downvoted)
-    } catch (err) {
-      store.setSnackbarError(err.response.data)
-    } finally {
-      this.loading = false
-    }
+      this.toggleUpvote({ key, variant })
+    })
   }
 
-  closeEdit() {
-    this.edit = false
+  async downvote() {
+    const key = this.$props.localization.key
+    const variant = this.$props.variant
+    const downvoted = this.downvoted[variant._id]
+
+    this.performRequest(async () => {
+      if (downvoted) {
+        await api.removeDownvoteVariant(key, variant._id)
+      } else {
+        await api.downvoteVariant(key, variant._id)
+      }
+      this.toggleDownvote({ key, variant })
+    })
   }
 
   hasNewComments(variant: any) {
-    const viewedItems = store.viewedItems()
     for (const comment of variant.comments) {
-      if (!viewedItems[comment._id]) {
+      if (!this.viewedItems[comment._id]) {
         return true
       }
     }
     return false
   }
 
-  setViewedItem(id: string) {
-    store.setViewedItem(id)
+  async performRequest(requestFunction: () => Promise<unknown>) {
+    this.loading = true
+    try {
+      await requestFunction()
+    } catch (err) {
+      console.error(err)
+      this.setSnackbarError(err.response?.data || JSON.stringify(err))
+    } finally {
+      this.loading = false
+    }
+  }
+
+  setViewedProxy() {
+    this.setViewedItem(this.$props.variant._id)
+    this.refreshLocalizations()
   }
 }
 </script>
+
+<style lang="scss" scoped>
+.variant {
+  @apply w-full;
+
+  &__actions {
+    @apply flex;
+    @apply flex-wrap;
+    @apply items-center;
+
+    & > * {
+      @apply pt-2;
+      @apply pr-3;
+      @apply md_pt-0;
+    }
+  }
+
+  &__icons {
+    @apply flex;
+    @apply items-center;
+    @apply place-self-start;
+    @apply space-x-1;
+  }
+
+  &__ratings {
+    @apply flex;
+    @apply items-center;
+    @apply space-x-2;
+    @apply mx-3;
+    @apply ml-0;
+    @apply md_ml-3;
+  }
+
+  &__content {
+    @apply pt-5;
+    @apply font-medium;
+    @apply text-text-silver;
+  }
+
+  &__link {
+    @apply transition;
+    @apply font-medium;
+    @apply text-text-silver;
+    @apply cursor-pointer;
+    @apply hover_text-primary-blue;
+
+    &--active {
+      @apply text-primary-blue;
+    }
+  }
+}
+</style>

@@ -1,114 +1,148 @@
 <template lang="pug">
-  .ml-4.mt-2
-    .my-0(v-for='comment in variant.comments')
-      div
-        v-chip.px-1(
-          dark
-          x-small
-          color='red'
-          v-if='admin && !!comment._id'
-          @click='deleteVariantComment(comment)'
+.mt-5
+  .comment(v-for='comment in variant.comments')
+    .comment__head
+      .flex.flex-wrap.items-center.space-x-2
+        Icon(
+          v-if='isAdmin',
+          @click='deleteVariantComment(comment)',
           :loading='loading'
-          :disabled='loading'
         )
-          v-icon(x-small color='white') delete
-        v-chip.px-1(
-          dark
-          x-small
-          v-if='comment.username'
-        ) {{comment.username}}
-        v-chip.px-1(
-          dark
-          x-small
-          v-if='comment.createdAt'
-        ) {{dateDisplay(comment.createdAt)}}
-        v-chip.px-1(
-          x-small
-          v-if='!$store.state.viewedItems[comment._id]'
-          dark
-          @mouseover='setViewedItem(comment._id)'
-          color='primary'
-        ) {{$t('new')}}
-      p.ma-0 {{comment.text}}
-      v-divider
-    v-textarea.mb-1.mt-0(
-      :label='$t("comment.new")'
-      clearable
-      rows='1'
-      auto-grow
-      no-resize
-      compact
-      v-model='text'
-      :append-outer-icon="!!text ? 'send' : undefined"
-      @click:append-outer='save'
-      :disabled='loading'
-    )
+          img(src='../assets/icons/close.svg', alt='Delete')
+        Chip(small, flat, inactive, v-if='comment.username') {{ comment.username }}
+        Chip(small, flat, inactive, v-if='comment.createdAt') {{ dateDisplay(comment.createdAt) }}
+        Chip(
+          small,
+          isNew,
+          v-if='!viewedItems[comment._id]',
+          @click='setViewedProxy(comment._id)'
+        ) {{ $t("new") }}
+    .comment__body {{ comment.text }}
+  .flex.flex-col.md_flex-row.md_space-x-2.space-y-2.md_space-y-0
+    Input(:label='$t("comment.new")', v-model='commentText')
+    Button(:inactive='!commentText', :loading='loading', @click='save') {{ $t("add.save") }}
 </template>
 
 <script lang="ts">
 import Vue from 'vue'
 import Component from 'vue-class-component'
-import { i18n } from '../plugins/i18n'
-import * as store from '../plugins/store'
-import * as api from '../utils/api'
+import * as api from '@/utils/api'
 import moment from 'moment'
+import { namespace } from 'vuex-class'
+import { Variant } from '@/models/Variant'
+import { Comment } from '@/models/Comment'
+import { ViewedItems } from '@/models/ViewedItems'
+
+const AppStore = namespace('AppStore')
+const DataStore = namespace('DataStore')
+const SnackbarStore = namespace('SnackbarStore')
 
 @Component({
   props: {
     variant: Object,
     localizationKey: String,
-    admin: Boolean,
   },
 })
 export default class Comments extends Vue {
-  text = ''
+  @AppStore.State username!: string
+  @AppStore.State isAdmin!: string
+  @DataStore.State viewedItems!: ViewedItems
+
+  @SnackbarStore.Mutation setSnackbarError!: (error: string) => void
+  @DataStore.Mutation addComment!: (options: {
+    key: string
+    variant: Variant
+    comment: Comment
+  }) => void
+  @DataStore.Mutation deleteComment!: (options: {
+    key: string
+    variant: Variant
+    comment: Comment
+  }) => void
+  @DataStore.Mutation setViewedItem!: (id: string) => void
+  @DataStore.Mutation refreshLocalizations!: () => void
+
+  commentText = ''
   loading = false
 
-  async save() {
-    this.loading = true
-    try {
-      await api.leaveCommentToVariant(
-        this.text,
-        this.$props.localizationKey,
-        this.$props.variant._id
+  save() {
+    const key = this.$props.localizationKey
+    const variant = this.$props.variant
+
+    this.performRequest(async () => {
+      const comment = await api.leaveCommentToVariant(
+        this.commentText,
+        key,
+        variant._id
       )
-      this.$props.variant.comments.push({
-        username: store.username(),
-        text: this.text,
-        createdAt: new Date(),
+      this.setViewedItem(comment._id)
+      this.addComment({
+        key,
+        variant,
+        comment,
       })
-      this.text = ''
-    } catch (err) {
-      store.setSnackbarError(err.response.data)
-    } finally {
-      this.loading = false
-    }
+      this.refreshLocalizations()
+      this.commentText = ''
+    })
   }
 
   dateDisplay(date: string) {
     return moment(date).format('L')
   }
 
-  async deleteVariantComment(comment: any) {
+  async deleteVariantComment(comment: Comment) {
+    const key = this.$props.localizationKey
+    const variant = this.$props.variant
+
+    this.performRequest(async () => {
+      await api.deleteCommentToVariant(key, variant._id, comment._id)
+      this.deleteComment({
+        key,
+        variant,
+        comment,
+      })
+      this.refreshLocalizations()
+    })
+  }
+
+  async performRequest(requestFunction: () => Promise<unknown>) {
     this.loading = true
     try {
-      await api.deleteCommentToVariant(
-        this.$props.localizationKey,
-        this.$props.variant._id,
-        comment._id
-      )
-      this.$props.variant.comments = this.$props.variant.comments.filter(
-        (c: any) => c._id !== comment._id
-      )
+      await requestFunction()
     } catch (err) {
-      store.setSnackbarError(err.response.data)
+      console.error(err)
+      this.setSnackbarError(err.response?.data || JSON.stringify(err))
     } finally {
       this.loading = false
     }
   }
 
-  setViewedItem(id: string) {
-    store.setViewedItem(id)
+  setViewedProxy(id: string) {
+    this.setViewedItem(id)
+    this.refreshLocalizations()
   }
 }
 </script>
+
+<style lang="scss">
+.comment {
+  @apply ml-8;
+  @apply mb-5;
+  @apply pl-4;
+  @apply border-l-2;
+  @apply border-back-silver;
+  @apply font-medium;
+
+  &__head {
+    @apply mb-3;
+  }
+
+  &__body {
+    @apply text-text-silver;
+  }
+}
+
+.dark .comment {
+  @apply border-text-dark;
+}
+</style>
